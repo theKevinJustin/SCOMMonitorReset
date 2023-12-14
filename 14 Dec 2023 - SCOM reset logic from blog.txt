@@ -1,0 +1,79 @@
+
+# DFS pack naming
+$DFSClasses = @(Get-SCOMClass -Name "*FileServices*"; Get-SCOMClass -Name "*FileServer*"; Get-SCOMClass -Name "*DFS*" )
+$DFSClass = $DFSClasses | sort -property Name -uniq
+
+# Debug
+$DFSClass.Count
+
+
+
+# Get AD classes - Microsoft.Windows.Server.AD.2016.Discovery, Microsoft.Windows.Server.AD.Library
+$ADLibrary = Get-SCOMManagementPack -name "Microsoft.Windows.Server.AD.Class.Library"
+	#get-scomclass -ManagementPack $ADLibrary
+$ADMonitoring = Get-SCOMManagementPack -name "Microsoft.Windows.Server.AD.2016.Monitoring"
+	#get-scomclass -ManagementPack $ADMonitoring | fl DisplayName,Name,ID
+$ADDiscovery = Get-SCOMManagementPack -name Microsoft.Windows.Server.AD.2016.Discovery
+	#get-scomclass -ManagementPack $ADDiscovery | fl DisplayName,Name,ID
+
+# ADDS pack naming
+$ADDSClasses = @(Get-SCOMClass -ManagementPack $ADLibrary; Get-SCOMClass -ManagementPack $ADDiscovery; )
+	# NOTE Excluded AD Monitoring pack as NO classes existed
+$ADDSClass = $ADDSClasses | sort -property Name -uniq
+
+# Debug count of unique classes
+$ADDSClass.Count
+
+
+
+
+
+# Set up monitor objects to reset
+foreach ($Class in $DFSClass)
+	{
+	$ActiveMonitors = @(Get-SCOMClassInstance -Class $Class | ? { ($_.healthstate -ne 'Success') -AND ( $_.healthstate -ne 'Uninitialized') -AND ($_.IsAvailable -eq $true) } )
+
+	# Debug
+	$ActiveMonitors.Count
+	# $ActiveMonitors | fl -property *
+
+	write-host "Found" $ActiveMonitors.Count "unhealthy monitors for class" $Class
+
+	foreach ( $UnhealthyOLDMonitor in $ActiveMonitors )
+		{
+		#if ( $UnhealthyOLDMonitor.AvailabilityLastModified -lt $Age )
+		if ( $UnhealthyOLDMonitor.StateLastModified -lt $Age )
+			{
+			$UnhealthyMonitors += $ActiveMonitors.Count
+			#UnhealthyOLDMonitor | select AvailabilityLastModified,Path,DisplayName
+			$UnhealthyOLDMonitor.Count
+			write-host "Found" + $UnhealthyOLDMonitor.Count + "unhealthy monitor beyond" $Age "days."
+			write-host ""
+
+			if ( $ActiveMonitors.Count -gt 0)
+				{
+				foreach ( $ActiveMonitor in $UnhealthyOLDMonitor )
+					{
+					# Debug
+					$ActiveMonitor.ID
+					write-host " Resetting Health State on '" + $ActiveMonitor.FullName + "'"
+					write-host ""
+					$ActiveMonitor.ResetMonitoringState($ActiveMonitor)
+					}
+				}
+
+			}
+
+		}
+
+	}
+
+}
+
+# Debug
+
+#$MonitorClass | fl -property *
+
+#$MonitorClass | select DisplayName,ID
+
+}

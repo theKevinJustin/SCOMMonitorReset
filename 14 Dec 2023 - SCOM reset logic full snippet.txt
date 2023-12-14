@@ -1,0 +1,71 @@
+$Age = [DateTime](Get-Date).AddDays(-7)
+
+
+# Gather AD alerts
+## Grab the MP, get the Monitors and Rules from the MP, then grab all alerts found inside the Monitors/Rules
+$SCOMCoreMP = Get-SCOMManagementPack -DisplayName "Active Directory Domain Services for Microsoft Windows Server 2016 and above (Monitoring)"
+$SCOMCoreRules = $SCOMCoreMP.GetRules()
+$SCOMCoreMonitors = $SCOMCoreMP.GetMonitors()
+
+$SCOMCoreReportAlerts = Get-SCOMAlert | ? { ($_.Name -in $SCOMCoreRules.DisplayName) -or ($_.Name -in $SCOMCoreMonitors.DisplayName) }
+$SCOMCoreReportAlerts.Count
+
+$SCOMCoreMonitorAlerts = Get-SCOMAlert | ? { ($_.Name -in $SCOMCoreMonitors.DisplayName ) -AND ( $_.ResolutionState -ne "255" ) }
+$SCOMCoreMonitorAlerts.Count
+
+
+# If open alerts exist, get classes, then reset unhealthy monitors older than $Age variable
+#===========================================================================================
+
+if ( $SCOMCoreReportAlerts.Count -gt 0 )
+	{
+	# Get AD classes - Microsoft.Windows.Server.AD.2016.Discovery, Microsoft.Windows.Server.AD.Library
+		$ADLibrary = Get-SCOMManagementPack -name "Microsoft.Windows.Server.AD.Class.Library"
+			#get-scomclass -ManagementPack $ADLibrary
+		$ADMonitoring = Get-SCOMManagementPack -name "Microsoft.Windows.Server.AD.2016.Monitoring"
+			#get-scomclass -ManagementPack $ADMonitoring | fl DisplayName,Name,ID
+		$ADDiscovery = Get-SCOMManagementPack -name Microsoft.Windows.Server.AD.2016.Discovery
+			#get-scomclass -ManagementPack $ADDiscovery | fl DisplayName,Name,ID
+
+	# ADDS pack naming
+	$ADDSClasses = @(Get-SCOMClass -ManagementPack $ADLibrary; Get-SCOMClass -ManagementPack $ADDiscovery; )
+	$ADDSClass = $ADDSClasses | sort -property Name -uniq
+	# Debug
+	$ADDSClass.Count
+
+	# Set up monitor objects to reset
+	foreach ($Class in $ADDSClass)
+		{
+		$ActiveMonitors = @(Get-SCOMClassInstance -Class $Class | ? { ($_.healthstate -ne 'Success') -AND ( $_.healthstate -ne 'Uninitialized') -AND ($_.IsAvailable -eq $true) } )
+		# Debug
+		$ActiveMonitors.Count
+		# $ActiveMonitors | fl -property *
+		write-host "Found" $ActiveMonitors.Count "unhealthy monitors for class" $Class
+		foreach ( $UnhealthyOLDMonitor in $ActiveMonitors )
+			{
+			#if ( $UnhealthyOLDMonitor.AvailabilityLastModified -lt $Age )
+			if ( $UnhealthyOLDMonitor.StateLastModified -lt $Age )
+				{
+				#$UnhealthyMonitors += $ActiveMonitors.Count					
+				#UnhealthyOLDMonitor | select AvailabilityLastModified,Path,DisplayName
+				#$UnhealthyOLDMonitor.Count
+				#write-host "Found" + $UnhealthyOLDMonitor.Count + "unhealthy monitor beyond" $Age "days."
+				#write-host ""
+				if ( $ActiveMonitors.Count -gt 0)
+					{
+					foreach ( $ActiveMonitor in $UnhealthyOLDMonitor )
+						{
+						# Debug
+						$ActiveMonitor.ID				
+						write-host " Resetting Health State on '" + $ActiveMonitor.FullName + "'" 
+						write-host ""
+						$ActiveMonitor.ResetMonitoringState($ActiveMonitor)
+						}
+					}
+				}
+			}
+		}
+	# Debug
+	#$MonitorClass | fl -property *
+	#$MonitorClass | select DisplayName,ID
+	}
